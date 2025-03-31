@@ -8,11 +8,11 @@ local Camera = workspace.CurrentCamera
 local isAiming = false
 local isAimbotEnabled = true
 local aimMode = "center"
-local ignoredPlayers = {} -- Danh sách người bị loại bỏ aimbot
+local ignoredPlayers = {} -- Danh sách người bị loại khỏi aimbot
 local espObjects = {} -- Lưu ESP của người chơi
 local currentTarget = nil -- Người đang bị aim vào
 
--- Hiển thị thông báo trên màn hình
+-- Hiển thị thông báo
 local function Notify(message)
     StarterGui:SetCore("SendNotification", {
         Title = "Aim Assist",
@@ -81,24 +81,33 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- Tạo ESP viền cho nhân vật
+-- Tạo ESP nếu chưa có
 local function CreateESP(player)
-    if espObjects[player] or not player.Character then return end
+    if not player.Character then return end
+
     local highlight = Instance.new("Highlight")
     highlight.FillTransparency = 1
-    highlight.OutlineColor = Color3.fromRGB(255, 0, 0) -- Viền đỏ mặc định
     highlight.Parent = player.Character
     espObjects[player] = highlight
 end
 
--- Cập nhật màu ESP
-local function UpdateESP()
-    for player, esp in pairs(espObjects) do
-        if player == currentTarget then
-            esp.OutlineColor = Color3.fromRGB(128, 0, 128) -- Aim vào ai thì màu tím
-        else
-            esp.OutlineColor = Color3.fromRGB(255, 0, 0) -- Còn lại màu đỏ
-        end
+-- Cập nhật màu viền ESP
+local function UpdateESP(player)
+    if not player.Character then return end
+
+    -- Nếu chưa có ESP, tạo mới
+    if not espObjects[player] then
+        CreateESP(player)
+    end
+
+    -- Cập nhật màu viền ESP
+    local esp = espObjects[player]
+    if player == currentTarget then
+        esp.OutlineColor = Color3.fromRGB(255, 255, 0) -- 🟡 Aim vào thì màu vàng
+    elseif IsIgnored(player) then
+        esp.OutlineColor = Color3.fromRGB(0, 255, 0) -- 🟢 Nếu bị loại bỏ thì màu xanh lá
+    else
+        esp.OutlineColor = Color3.fromRGB(255, 0, 0) -- 🔴 Còn lại là màu đỏ
     end
 end
 
@@ -150,9 +159,12 @@ end
 
 -- Cập nhật camera để aim vào mục tiêu
 RunService.RenderStepped:Connect(function()
-    -- Cập nhật ESP toàn bộ người chơi
+    -- Đảm bảo tất cả người chơi đều có ESP ngay lập tức
     for _, otherPlayer in pairs(Players:GetPlayers()) do
-        CreateESP(otherPlayer)
+        if not espObjects[otherPlayer] then
+            CreateESP(otherPlayer)
+        end
+        UpdateESP(otherPlayer)
     end
 
     if isAiming and isAimbotEnabled then
@@ -171,9 +183,6 @@ RunService.RenderStepped:Connect(function()
             currentTarget = nil
         end
     end
-
-    -- Cập nhật màu viền ESP
-    UpdateESP()
 end)
 
 --animation H
