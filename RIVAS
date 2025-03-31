@@ -6,82 +6,111 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 local isAiming = false
-local isAimbotEnabled = true -- Trạng thái bật/tắt aimbot
-local aimMode = "center" -- "center" (gần tâm) | "player" (gần nhân vật)
-local currentESP = nil -- ESP hiện tại
+local isAimbotEnabled = true
+local aimMode = "center"
+local ignoredPlayers = {} -- Danh sách người bị loại bỏ aimbot
+local espObjects = {} -- Lưu ESP của người chơi
+local currentTarget = nil -- Người đang bị aim vào
 
 -- Hiển thị thông báo trên màn hình
 local function Notify(message)
     StarterGui:SetCore("SendNotification", {
         Title = "Aim Assist",
         Text = message,
-        Duration = 10
+        Duration = 5
     })
 end
 
--- Hiển thị hướng dẫn khi chạy script
-Notify("Script khởi động! Giữ chuột phải để nhắm.\nNhấn [T] để đổi chế độ.\nNhấn [Y] để bật/tắt aimbot.[H] để cười nhạo.")
+Notify("Script khởi động! Giữ chuột phải để nhắm.\nNhấn [T] để đổi chế độ.\nNhấn [Y] để bật/tắt aimbot.\nNhấn [B] để loại bỏ người chơi gần.\nNhấn [N] để thêm lại tất cả.")
 
--- Kiểm tra xem người chơi có đang nhập chat không
-local function IsTyping()
-    return UserInputService:GetFocusedTextBox() ~= nil
+-- Kiểm tra xem người chơi có bị loại bỏ không
+local function IsIgnored(player)
+    return ignoredPlayers[player] == true
 end
 
--- Tạo ESP (viền đỏ) quanh nhân vật
-local function CreateESP(player)
-    if player and player.Character then
-        local highlight = Instance.new("Highlight")
-        highlight.FillTransparency = 1
-        highlight.OutlineColor = Color3.fromRGB(255, 0, 0) -- Màu đỏ
-        highlight.OutlineTransparency = 0
-        highlight.Parent = player.Character
-        return highlight
-    end
-    return nil
+-- Xóa danh sách người bị loại bỏ
+local function ClearIgnoredPlayers()
+    ignoredPlayers = {}
+    Notify("Đã thêm lại tất cả người chơi vào aimbot.")
 end
 
--- Xóa ESP hiện tại
-local function RemoveESP()
-    if currentESP then
-        currentESP:Destroy()
-        currentESP = nil
+-- Loại bỏ tất cả người chơi trong bán kính 70m
+local function RemovePlayersInRange()
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+
+    local playerPosition = character.HumanoidRootPart.Position
+    local removedCount = 0
+
+    for _, otherPlayer in pairs(Players:GetPlayers()) do
+        if otherPlayer ~= LocalPlayer and otherPlayer.Character and otherPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local distance = (otherPlayer.Character.HumanoidRootPart.Position - playerPosition).Magnitude
+            if distance <= 70 then
+                ignoredPlayers[otherPlayer] = true
+                removedCount = removedCount + 1
+            end
+        end
     end
+
+    Notify("Đã loại bỏ " .. removedCount .. " người chơi trong phạm vi 70m khỏi aimbot.")
 end
 
 -- Nhấn giữ chuột phải để bật nhắm
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed or IsTyping() then return end -- Không nhận lệnh nếu đang chat
+    if gameProcessed then return end
 
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         isAiming = true
     elseif input.KeyCode == Enum.KeyCode.T then
-        -- Chuyển đổi chế độ nhắm
         aimMode = (aimMode == "center") and "player" or "center"
         Notify("Chế độ nhắm: " .. (aimMode == "center" and "Gần tâm" or "Gần nhân vật"))
     elseif input.KeyCode == Enum.KeyCode.Y then
-        -- Bật/tắt aimbot
         isAimbotEnabled = not isAimbotEnabled
         Notify("Aimbot: " .. (isAimbotEnabled and "Bật" or "Tắt"))
-        if not isAimbotEnabled then RemoveESP() end -- Xóa ESP khi tắt aimbot
+    elseif input.KeyCode == Enum.KeyCode.B then
+        RemovePlayersInRange()
+    elseif input.KeyCode == Enum.KeyCode.N then
+        ClearIgnoredPlayers()
     end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         isAiming = false
-        RemoveESP() -- Xóa ESP khi không aim nữa
+        currentTarget = nil
     end
 end)
 
--- Hàm tìm người chơi gần tâm màn hình nhất
+-- Tạo ESP viền cho nhân vật
+local function CreateESP(player)
+    if espObjects[player] or not player.Character then return end
+    local highlight = Instance.new("Highlight")
+    highlight.FillTransparency = 1
+    highlight.OutlineColor = Color3.fromRGB(255, 0, 0) -- Viền đỏ mặc định
+    highlight.Parent = player.Character
+    espObjects[player] = highlight
+end
+
+-- Cập nhật màu ESP
+local function UpdateESP()
+    for player, esp in pairs(espObjects) do
+        if player == currentTarget then
+            esp.OutlineColor = Color3.fromRGB(128, 0, 128) -- Aim vào ai thì màu tím
+        else
+            esp.OutlineColor = Color3.fromRGB(255, 0, 0) -- Còn lại màu đỏ
+        end
+    end
+end
+
+-- Tìm người chơi gần tâm màn hình
 local function GetClosestPlayerToCenter()
     local closestPlayer = nil
     local closestDistance = math.huge
     local crosshairPosition = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    local maxRadius = 200  -- Giới hạn phạm vi tính từ tâm màn hình
+    local maxRadius = 200  
 
     for _, otherPlayer in pairs(Players:GetPlayers()) do
-        if otherPlayer ~= LocalPlayer and otherPlayer.Character and otherPlayer.Character:FindFirstChild("Head") then
+        if otherPlayer ~= LocalPlayer and not IsIgnored(otherPlayer) and otherPlayer.Character and otherPlayer.Character:FindFirstChild("Head") then
             local head = otherPlayer.Character.Head
             local screenPoint, onScreen = Camera:WorldToViewportPoint(head.Position)
             if onScreen then
@@ -97,7 +126,7 @@ local function GetClosestPlayerToCenter()
     return closestPlayer
 end
 
--- Hàm tìm người chơi gần nhân vật nhất
+-- Tìm người chơi gần nhân vật
 local function GetClosestPlayerToPlayer()
     local closestPlayer = nil
     local closestDistance = math.huge
@@ -107,7 +136,7 @@ local function GetClosestPlayerToPlayer()
     local playerPosition = character.HumanoidRootPart.Position
 
     for _, otherPlayer in pairs(Players:GetPlayers()) do
-        if otherPlayer ~= LocalPlayer and otherPlayer.Character and otherPlayer.Character:FindFirstChild("Head") then
+        if otherPlayer ~= LocalPlayer and not IsIgnored(otherPlayer) and otherPlayer.Character and otherPlayer.Character:FindFirstChild("Head") then
             local head = otherPlayer.Character.Head
             local distance = (head.Position - playerPosition).Magnitude
             if distance < closestDistance then
@@ -119,8 +148,13 @@ local function GetClosestPlayerToPlayer()
     return closestPlayer
 end
 
--- Cập nhật camera để aim vào mục tiêu và tạo ESP
+-- Cập nhật camera để aim vào mục tiêu
 RunService.RenderStepped:Connect(function()
+    -- Cập nhật ESP toàn bộ người chơi
+    for _, otherPlayer in pairs(Players:GetPlayers()) do
+        CreateESP(otherPlayer)
+    end
+
     if isAiming and isAimbotEnabled then
         local target = nil
         if aimMode == "center" then
@@ -132,20 +166,14 @@ RunService.RenderStepped:Connect(function()
         if target and target.Character and target.Character:FindFirstChild("Head") then
             local headPosition = target.Character.Head.Position
             Camera.CFrame = CFrame.new(Camera.CFrame.Position, headPosition)
-
-            -- Cập nhật ESP
-            if currentESP and currentESP.Parent ~= target.Character then
-                RemoveESP()
-            end
-            if not currentESP then
-                currentESP = CreateESP(target)
-            end
+            currentTarget = target
         else
-            RemoveESP()
+            currentTarget = nil
         end
-    else
-        RemoveESP()
     end
+
+    -- Cập nhật màu viền ESP
+    UpdateESP()
 end)
 
 --animation H
