@@ -1,0 +1,199 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+local isAiming = false
+local isAimbotEnabled = true -- Trạng thái bật/tắt aimbot
+local aimMode = "center" -- "center" (gần tâm) | "player" (gần nhân vật)
+local currentESP = nil -- ESP hiện tại
+
+-- Hiển thị thông báo trên màn hình
+local function Notify(message)
+    StarterGui:SetCore("SendNotification", {
+        Title = "Aim Assist",
+        Text = message,
+        Duration = 10
+    })
+end
+
+-- Hiển thị hướng dẫn khi chạy script
+Notify("Script khởi động! Giữ chuột phải để nhắm.\nNhấn [T] để đổi chế độ.\nNhấn [Y] để bật/tắt aimbot.[H] để cười nhạo.")
+
+-- Kiểm tra xem người chơi có đang nhập chat không
+local function IsTyping()
+    return UserInputService:GetFocusedTextBox() ~= nil
+end
+
+-- Tạo ESP (viền đỏ) quanh nhân vật
+local function CreateESP(player)
+    if player and player.Character then
+        local highlight = Instance.new("Highlight")
+        highlight.FillTransparency = 1
+        highlight.OutlineColor = Color3.fromRGB(255, 0, 0) -- Màu đỏ
+        highlight.OutlineTransparency = 0
+        highlight.Parent = player.Character
+        return highlight
+    end
+    return nil
+end
+
+-- Xóa ESP hiện tại
+local function RemoveESP()
+    if currentESP then
+        currentESP:Destroy()
+        currentESP = nil
+    end
+end
+
+-- Nhấn giữ chuột phải để bật nhắm
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed or IsTyping() then return end -- Không nhận lệnh nếu đang chat
+
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        isAiming = true
+    elseif input.KeyCode == Enum.KeyCode.T then
+        -- Chuyển đổi chế độ nhắm
+        aimMode = (aimMode == "center") and "player" or "center"
+        Notify("Chế độ nhắm: " .. (aimMode == "center" and "Gần tâm" or "Gần nhân vật"))
+    elseif input.KeyCode == Enum.KeyCode.Y then
+        -- Bật/tắt aimbot
+        isAimbotEnabled = not isAimbotEnabled
+        Notify("Aimbot: " .. (isAimbotEnabled and "Bật" or "Tắt"))
+        if not isAimbotEnabled then RemoveESP() end -- Xóa ESP khi tắt aimbot
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        isAiming = false
+        RemoveESP() -- Xóa ESP khi không aim nữa
+    end
+end)
+
+-- Hàm tìm người chơi gần tâm màn hình nhất
+local function GetClosestPlayerToCenter()
+    local closestPlayer = nil
+    local closestDistance = math.huge
+    local crosshairPosition = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local maxRadius = 200  -- Giới hạn phạm vi tính từ tâm màn hình
+
+    for _, otherPlayer in pairs(Players:GetPlayers()) do
+        if otherPlayer ~= LocalPlayer and otherPlayer.Character and otherPlayer.Character:FindFirstChild("Head") then
+            local head = otherPlayer.Character.Head
+            local screenPoint, onScreen = Camera:WorldToViewportPoint(head.Position)
+            if onScreen then
+                local screenPos = Vector2.new(screenPoint.X, screenPoint.Y)
+                local distance = (screenPos - crosshairPosition).magnitude
+                if distance < closestDistance and distance <= maxRadius then
+                    closestDistance = distance
+                    closestPlayer = otherPlayer
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- Hàm tìm người chơi gần nhân vật nhất
+local function GetClosestPlayerToPlayer()
+    local closestPlayer = nil
+    local closestDistance = math.huge
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+
+    local playerPosition = character.HumanoidRootPart.Position
+
+    for _, otherPlayer in pairs(Players:GetPlayers()) do
+        if otherPlayer ~= LocalPlayer and otherPlayer.Character and otherPlayer.Character:FindFirstChild("Head") then
+            local head = otherPlayer.Character.Head
+            local distance = (head.Position - playerPosition).Magnitude
+            if distance < closestDistance then
+                closestDistance = distance
+                closestPlayer = otherPlayer
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- Cập nhật camera để aim vào mục tiêu và tạo ESP
+RunService.RenderStepped:Connect(function()
+    if isAiming and isAimbotEnabled then
+        local target = nil
+        if aimMode == "center" then
+            target = GetClosestPlayerToCenter()
+        else
+            target = GetClosestPlayerToPlayer()
+        end
+
+        if target and target.Character and target.Character:FindFirstChild("Head") then
+            local headPosition = target.Character.Head.Position
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, headPosition)
+
+            -- Cập nhật ESP
+            if currentESP and currentESP.Parent ~= target.Character then
+                RemoveESP()
+            end
+            if not currentESP then
+                currentESP = CreateESP(target)
+            end
+        else
+            RemoveESP()
+        end
+    else
+        RemoveESP()
+    end
+end)
+
+--animation H
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local AnimationId = "rbxassetid://507770818"
+local Animation
+local AnimationTrack
+
+-- Hàm tải animation
+local function LoadAnimation(character)
+    local Humanoid = character:WaitForChild("Humanoid", 5) -- Chờ humanoid xuất hiện
+    if not Humanoid then return end
+
+    local Animator = Humanoid:FindFirstChildOfClass("Animator")
+    if not Animator then
+        Animator = Instance.new("Animator")
+        Animator.Parent = Humanoid
+    end
+
+    Animation = Instance.new("Animation")
+    Animation.AnimationId = AnimationId
+    AnimationTrack = Animator:LoadAnimation(Animation)
+end
+
+-- Hàm xử lý khi nhấn H
+local function onInputBegan(input, gameProcessed)
+    if gameProcessed or UserInputService:GetFocusedTextBox() then return end -- Không kích hoạt khi chat
+
+    if input.KeyCode == Enum.KeyCode.H and AnimationTrack then
+        if AnimationTrack.IsPlaying then
+            AnimationTrack:Stop()
+        else
+            AnimationTrack:Play()
+        end
+    end
+end
+
+-- Khi nhân vật xuất hiện hoặc hồi sinh
+LocalPlayer.CharacterAdded:Connect(function(character)
+    LoadAnimation(character)
+end)
+
+UserInputService.InputBegan:Connect(onInputBegan)
+
+-- Nếu nhân vật đã tồn tại, tải animation ngay
+if LocalPlayer.Character then
+    LoadAnimation(LocalPlayer.Character)
+end
