@@ -9,10 +9,9 @@ local isAiming = false
 local isAimbotEnabled = true
 local aimMode = "center"
 local ignoredPlayers = {} -- Danh sách người bị loại khỏi aimbot
-local espObjects = {} -- Lưu ESP của người chơi
-local currentTarget = nil -- Người đang bị aim vào
+local currentTarget = nil -- Người chơi đang bị aimbot nhắm đến
 
--- Hiển thị thông báo
+-- Hiển thị thông báo trên màn hình
 local function Notify(message)
     StarterGui:SetCore("SendNotification", {
         Title = "Aim Assist",
@@ -55,6 +54,36 @@ local function RemovePlayersInRange()
     Notify("Đã loại bỏ " .. removedCount .. " người chơi trong phạm vi 70m khỏi aimbot.")
 end
 
+-- Hiển thị ESP viền đỏ quanh người chơi
+local function AddESP(player)
+    if not player or not player.Character then return end
+
+    for _, part in pairs(player.Character:GetChildren()) do
+        if part:IsA("BasePart") then
+            local highlight = Instance.new("Highlight")
+            highlight.Parent = part
+            highlight.FillTransparency = 1
+            highlight.OutlineColor = Color3.fromRGB(255, 0, 0) -- Màu đỏ
+            highlight.OutlineTransparency = 0
+            highlight.Name = "ESP_Highlight"
+        end
+    end
+end
+
+-- Xóa ESP của người chơi
+local function RemoveESP(player)
+    if not player or not player.Character then return end
+
+    for _, part in pairs(player.Character:GetChildren()) do
+        if part:IsA("BasePart") then
+            local highlight = part:FindFirstChild("ESP_Highlight")
+            if highlight then
+                highlight:Destroy()
+            end
+        end
+    end
+end
+
 -- Nhấn giữ chuột phải để bật nhắm
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
@@ -67,6 +96,10 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     elseif input.KeyCode == Enum.KeyCode.Y then
         isAimbotEnabled = not isAimbotEnabled
         Notify("Aimbot: " .. (isAimbotEnabled and "Bật" or "Tắt"))
+        if not isAimbotEnabled then 
+            RemoveESP(currentTarget) 
+            currentTarget = nil 
+        end
     elseif input.KeyCode == Enum.KeyCode.B then
         RemovePlayersInRange()
     elseif input.KeyCode == Enum.KeyCode.N then
@@ -77,39 +110,10 @@ end)
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         isAiming = false
+        RemoveESP(currentTarget)
         currentTarget = nil
     end
 end)
-
--- Tạo ESP nếu chưa có
-local function CreateESP(player)
-    if not player.Character then return end
-
-    local highlight = Instance.new("Highlight")
-    highlight.FillTransparency = 1
-    highlight.Parent = player.Character
-    espObjects[player] = highlight
-end
-
--- Cập nhật màu viền ESP
-local function UpdateESP(player)
-    if not player.Character then return end
-
-    -- Nếu chưa có ESP, tạo mới
-    if not espObjects[player] then
-        CreateESP(player)
-    end
-
-    -- Cập nhật màu viền ESP
-    local esp = espObjects[player]
-    if player == currentTarget then
-        esp.OutlineColor = Color3.fromRGB(255, 255, 0) -- 🟡 Aim vào thì màu vàng
-    elseif IsIgnored(player) then
-        esp.OutlineColor = Color3.fromRGB(0, 255, 0) -- 🟢 Nếu bị loại bỏ thì màu xanh lá
-    else
-        esp.OutlineColor = Color3.fromRGB(255, 0, 0) -- 🔴 Còn lại là màu đỏ
-    end
-end
 
 -- Tìm người chơi gần tâm màn hình
 local function GetClosestPlayerToCenter()
@@ -159,14 +163,6 @@ end
 
 -- Cập nhật camera để aim vào mục tiêu
 RunService.RenderStepped:Connect(function()
-    -- Đảm bảo tất cả người chơi đều có ESP ngay lập tức
-    for _, otherPlayer in pairs(Players:GetPlayers()) do
-        if not espObjects[otherPlayer] then
-            CreateESP(otherPlayer)
-        end
-        UpdateESP(otherPlayer)
-    end
-
     if isAiming and isAimbotEnabled then
         local target = nil
         if aimMode == "center" then
@@ -175,13 +171,22 @@ RunService.RenderStepped:Connect(function()
             target = GetClosestPlayerToPlayer()
         end
 
+        -- Nếu có mục tiêu mới, cập nhật ESP
+        if target ~= currentTarget then
+            RemoveESP(currentTarget) -- Xóa ESP của mục tiêu cũ
+            currentTarget = target
+            if currentTarget then
+                AddESP(currentTarget) -- Thêm ESP cho mục tiêu mới
+            end
+        end
+
         if target and target.Character and target.Character:FindFirstChild("Head") then
             local headPosition = target.Character.Head.Position
             Camera.CFrame = CFrame.new(Camera.CFrame.Position, headPosition)
-            currentTarget = target
-        else
-            currentTarget = nil
         end
+    else
+        RemoveESP(currentTarget)
+        currentTarget = nil
     end
 end)
 
