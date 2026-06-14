@@ -15,8 +15,10 @@ local currentTarget = nil
 local spamClickEnabled = true
 local spamState = false
 local lastClick = 0
+local clickMode = "spam" -- "spam" hoặc "hold"
 local clickDelay = 0.03
 local holdingClick = false
+local aimMode = "screen" -- "screen" hoặc "distance"
 
 local highlightSyncTick = 0
 local highlightSyncRate = 0.2
@@ -25,11 +27,21 @@ local function Notify(message)
 	StarterGui:SetCore("SendNotification", {
 		Title = "Aim Assist",
 		Text = message,
-		Duration = 10
+		Duration = 12
 	})
 end
 
-Notify("Script khởi động! Giữ chuột phải để nhắm.\nNhấn [Y] để bật/tắt aimbot.\nNhấn [B] để loại bỏ người chơi gần.\nNhấn [N] để thêm lại tất cả.\nNhấn [H] để bật/tắt animation.")
+local function NotifyClickMode()
+	Notify("Click mode: " .. (clickMode == "spam" and "Spam Click" or "Hold"))
+end
+
+local function NotifyAimMode()
+	Notify("Aim mode: " .. (aimMode == "screen" and "Screen Radius" or "3D Distance"))
+end
+
+Notify("Script khởi động! Giữ chuột phải để nhắm.\nNhấn [Y] để bật/tắt aimbot.\nNhấn [U] để đổi Aim Mode.\nNhấn [T] để đổi Spam/Hold.\nNhấn [B] để loại bỏ người chơi gần.\nNhấn [N] để thêm lại tất cả.\nNhấn [H] để bật/tắt animation.")
+NotifyClickMode()
+NotifyAimMode()
 
 local function IsIgnored(player)
 	return ignoredPlayers[player] == true
@@ -205,6 +217,14 @@ local function GetClosestPlayerToPlayer()
 	return closestPlayer
 end
 
+local function GetBestTarget()
+	if aimMode == "distance" then
+		return GetClosestPlayerToPlayer()
+	end
+
+	return GetClosestPlayerToCenter()
+end
+
 local function sendClick(isDown)
 	local m = UserInputService:GetMouseLocation()
 	VirtualInputManager:SendMouseButtonEvent(m.X, m.Y, 0, isDown, game, 0)
@@ -225,13 +245,7 @@ local function UpdateSpamClick(target)
 
 	local active = isAiming and isAimbotEnabled and target and target.Character and target.Character:FindFirstChild("Head")
 
-	if active then
-		if tick() - lastClick >= clickDelay then
-			lastClick = tick()
-			spamState = not spamState
-			sendClick(spamState)
-		end
-	else
+	if not active then
 		if holdingClick then
 			sendClick(false)
 			holdingClick = false
@@ -240,12 +254,36 @@ local function UpdateSpamClick(target)
 			sendClick(false)
 			spamState = false
 		end
+		return
+	end
+
+	if clickMode == "spam" then
+		if holdingClick then
+			sendClick(false)
+			holdingClick = false
+		end
+
+		if tick() - lastClick >= clickDelay then
+			lastClick = tick()
+			spamState = not spamState
+			sendClick(spamState)
+		end
+	else
+		if spamState then
+			sendClick(false)
+			spamState = false
+		end
+
+		if not holdingClick then
+			sendClick(true)
+			holdingClick = true
+		end
 	end
 end
 
 local function UpdateAim()
 	if isAiming and isAimbotEnabled then
-		local target = GetClosestPlayerToCenter()
+		local target = GetBestTarget()
 
 		if target ~= currentTarget then
 			currentTarget = target
@@ -280,6 +318,24 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		RemovePlayersInRange()
 	elseif input.KeyCode == Enum.KeyCode.N then
 		ClearIgnoredPlayers()
+	elseif input.KeyCode == Enum.KeyCode.T then
+		clickMode = (clickMode == "spam") and "hold" or "spam"
+
+		if holdingClick then
+			sendClick(false)
+			holdingClick = false
+		end
+		if spamState then
+			sendClick(false)
+			spamState = false
+		end
+
+		NotifyClickMode()
+	elseif input.KeyCode == Enum.KeyCode.U then
+		aimMode = (aimMode == "screen") and "distance" or "screen"
+
+		currentTarget = nil
+		NotifyAimMode()
 	end
 end)
 
@@ -287,7 +343,15 @@ UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton2 then
 		isAiming = false
 		currentTarget = nil
-		UpdateSpamClick(nil)
+
+		if holdingClick then
+			sendClick(false)
+			holdingClick = false
+		end
+		if spamState then
+			sendClick(false)
+			spamState = false
+		end
 	end
 end)
 
